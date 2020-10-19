@@ -8,7 +8,14 @@ EXTRA_DIST = \
   autogen.sh \
   $(empty)
 
+GITIGNOREFILES = \
+  $(DIST_ARCHIVES) \
+  $(empty)
+
 MAINTAINERCLEANFILES = \
+  $(GITIGNORE_MAINTAINERCLEANFILES_TOPLEVEL) \
+  $(GITIGNORE_MAINTAINERCLEANFILES_M4_LIBTOOL) \
+  $(GITIGNORE_MAINTAINERCLEANFILES_MAKEFILE_IN) \
   $(srcdir)/ChangeLog \
   $(srcdir)/INSTALL \
   $(srcdir)/m4/gtk-doc.m4 \
@@ -67,5 +74,6 @@ ChangeLog:
 	fi
 
 CLEANFILES += $(BUILT_SOURCES)
+GITIGNOREFILES += $(BUILT_SOURCES)
 
 -include $(top_srcdir)/git.mk
