@@ -63,6 +63,23 @@ LT_OUTPUT
 
 PKG_CHECK_MODULES(DEPS, [glib-2.0])
 
+dnl required versions of gstreamer and plugins-base
+GST_REQUIRED=1.0.0
+
+PKG_CHECK_MODULES(GST, [
+  gstreamer-1.0 >= $GST_REQUIRED
+], [
+  AC_SUBST(GST_CFLAGS)
+  AC_SUBST(GST_LIBS)
+], [
+  AC_MSG_ERROR([
+      You need to install or upgrade the GStreamer development
+      packages on your system. On debian-based systems these are
+      libgstreamer1.0-dev; on RPM-based systems gstreamer1.0-devel.
+      The minimum version required is $GST_REQUIRED.
+  ])
+])
+
 AC_CONFIG_FILES([
   Makefile
 ])

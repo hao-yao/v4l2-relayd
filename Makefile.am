@@ -49,9 +49,11 @@ src_v4l2_relayd_SOURCES = \
 src_v4l2_relayd_CFLAGS = \
   $(AM_CFLAGS) \
   $(DEPS_CFLAGS) \
+  $(GST_CFLAGS) \
   $(empty)
 src_v4l2_relayd_LDADD = \
   $(DEPS_LIBS) \
+  $(GST_LIBS) \
   $(empty)
 
 distclean-local:
