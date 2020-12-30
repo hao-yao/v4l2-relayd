@@ -22,6 +22,7 @@
 #include <glib.h>
 #include <gst/gst.h>
 #include <gst/app/gstappsrc.h>
+#include <gst/video/video-info.h>
 
 static gboolean opt_background = FALSE;
 static gboolean opt_debug = FALSE;
@@ -33,6 +34,7 @@ static gchar *opt_output_caps = NULL;
 
 static guint icamerasrc_bus_watch_id = 0;
 static guint loopback_bus_watch_id = 0;
+static guint loopback_push_buffer_id = 0;
 
 static int         capture_device_id_from_string (const gchar *value) G_GNUC_UNUSED;
 static gboolean    icamerasrc_pipeline_bus_call  (GstBus      *bus,
@@ -254,6 +256,63 @@ loopback_pipeline_bus_call (GstBus     *bus,
   return TRUE;
 }
 
+static gboolean
+loopback_appsrc_push_data (GstAppSrc *appsrc)
+{
+  GstCaps *caps;
+  GstVideoInfo info;
+  GstBuffer *buffer = NULL;
+  gboolean ret = G_SOURCE_REMOVE;
+
+  gst_video_info_init (&info);
+  caps = gst_app_src_get_caps (appsrc);
+  if ((caps == NULL) || !gst_video_info_from_caps (&info, caps))
+    goto caps_error;
+
+  buffer = gst_buffer_new_allocate (NULL, GST_VIDEO_INFO_SIZE (&info), NULL);
+  if (buffer == NULL)
+    goto caps_error;
+
+  ret = GST_FLOW_OK == gst_app_src_push_buffer (appsrc, buffer)
+      ? G_SOURCE_CONTINUE : G_SOURCE_REMOVE;
+
+caps_error:
+  if (caps != NULL)
+    gst_caps_unref (caps);
+
+  if (ret == G_SOURCE_REMOVE)
+    loopback_push_buffer_id = 0;
+
+  return ret;
+}
+
+static void
+loopback_appsrc_need_data (GstAppSrc *appsrc,
+                           guint      length,
+                           gpointer   user_data)
+{
+  if (loopback_push_buffer_id == 0) {
+    loopback_push_buffer_id =
+        g_idle_add ((GSourceFunc) loopback_appsrc_push_data, appsrc);
+  }
+}
+
+static void
+loopback_appsrc_enough_data (GstAppSrc *appsrc,
+                             gpointer   user_data)
+{
+  if (loopback_push_buffer_id != 0) {
+    g_source_remove (loopback_push_buffer_id);
+    loopback_push_buffer_id = 0;
+  }
+}
+
+static GstAppSrcCallbacks loopback_appsrc_callbacks = {
+  .need_data = loopback_appsrc_need_data,
+  .enough_data = loopback_appsrc_enough_data,
+  .seek_data = NULL
+};
+
 static GstElement*
 loopback_pipeline_create (GMainLoop *loop)
 {
@@ -278,6 +337,9 @@ loopback_pipeline_create (GMainLoop *loop)
     g_object_set (appsrc, "caps", caps, NULL);
     gst_caps_unref (caps);
   }
+
+  gst_app_src_set_callbacks (GST_APP_SRC (appsrc), &loopback_appsrc_callbacks,
+                             pipeline, NULL);
 
   g_object_set (v4l2sink, "device", opt_output, NULL);
 
