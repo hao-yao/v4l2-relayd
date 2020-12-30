@@ -61,7 +61,11 @@ LT_INIT([disable-static])
 # Create libtool early, because it's used in configure
 LT_OUTPUT
 
-PKG_CHECK_MODULES(DEPS, [glib-2.0])
+GIO_UNIX_REQUIRED=2.36
+PKG_CHECK_MODULES(DEPS, [
+  glib-2.0
+  gio-unix-2.0 >= $GIO_UNIX_REQUIRED
+])
 
 dnl required versions of gstreamer and plugins-base
 GST_REQUIRED=1.0.0

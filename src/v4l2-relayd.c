@@ -18,11 +18,20 @@
 
 #include <errno.h>
 #include <unistd.h>
+#include <sys/ioctl.h>
+#include <linux/videodev2.h>
 
 #include <glib.h>
+#include <glib-unix.h>
 #include <gst/gst.h>
 #include <gst/app/gstappsrc.h>
 #include <gst/video/video-info.h>
+
+#define V4L2_EVENT_PRI_CLIENT_USAGE  V4L2_EVENT_PRIVATE_START
+
+struct v4l2_event_client_usage {
+  __u32 count;
+};
 
 static gboolean opt_background = FALSE;
 static gboolean opt_debug = FALSE;
@@ -35,6 +44,7 @@ static gchar *opt_output_caps = NULL;
 static guint icamerasrc_bus_watch_id = 0;
 static guint loopback_bus_watch_id = 0;
 static guint loopback_push_buffer_id = 0;
+static guint loopback_event_poll_id = 0;
 
 static int         capture_device_id_from_string (const gchar *value) G_GNUC_UNUSED;
 static gboolean    icamerasrc_pipeline_bus_call  (GstBus      *bus,
@@ -211,6 +221,42 @@ icamerasrc_pipeline_create (GMainLoop *loop)
 }
 
 static gboolean
+v4l2sink_event_callback (gint         fd,
+                         GIOCondition condition,
+                         gpointer     user_data)
+{
+  struct v4l2_event event;
+  int ret;
+
+  if (!(condition & G_IO_PRI))
+    return TRUE;
+
+  do {
+    memset (&event, 0, sizeof (event));
+
+    ret = ioctl (fd, VIDIOC_DQEVENT, &event);
+    if (ret < 0)
+      return TRUE;
+
+    g_debug ("Received V4L2 event type %u", event.type);
+    switch (event.type) {
+      case V4L2_EVENT_PRI_CLIENT_USAGE: {
+        struct v4l2_event_client_usage usage;
+
+        memcpy (&usage, &event.u, sizeof usage);
+        g_print ("Current V4L2 client: %u\n", usage.count);
+
+        break;
+      }
+      default:
+        break;
+    }
+  } while (event.pending);
+
+  return TRUE;
+}
+
+static gboolean
 loopback_pipeline_bus_call (GstBus     *bus,
                             GstMessage *msg,
                             gpointer    data)
@@ -219,7 +265,11 @@ loopback_pipeline_bus_call (GstBus     *bus,
 
   switch (GST_MESSAGE_TYPE (msg)) {
     case GST_MESSAGE_STATE_CHANGED: {
+      GstPipeline *pipeline;
       GstState old_state, new_state;
+      GstElement *v4l2sink;
+      int fd = -1;
+      struct v4l2_event_subscription sub;
 
       if (!GST_IS_PIPELINE (GST_MESSAGE_SRC (msg)))
         break;
@@ -228,7 +278,32 @@ loopback_pipeline_bus_call (GstBus     *bus,
       g_print ("Pipeline state changed from %s to %s:\n",
                gst_element_state_get_name (old_state),
                gst_element_state_get_name (new_state));
+      if (old_state == GST_STATE_PLAYING) {
+        if (loopback_event_poll_id > 0) {
+          g_source_remove (loopback_event_poll_id);
+          loopback_event_poll_id = 0;
+        }
+        break;
+      }
 
+      if (new_state != GST_STATE_PLAYING)
+        break;
+
+      pipeline = GST_PIPELINE (GST_MESSAGE_SRC (msg));
+      v4l2sink = gst_bin_get_by_name (GST_BIN (pipeline), "v4l2sink");
+      g_object_get (v4l2sink, "device-fd", &fd, NULL);
+
+      memset (&sub, 0, sizeof (sub));
+      sub.type = V4L2_EVENT_PRI_CLIENT_USAGE;
+      sub.id = 0;
+      sub.flags = V4L2_EVENT_SUB_FL_SEND_INITIAL;
+      if (ioctl (fd, VIDIOC_SUBSCRIBE_EVENT, &sub) == 0)
+        loopback_event_poll_id =
+            g_unix_fd_add (fd, G_IO_PRI, v4l2sink_event_callback, pipeline);
+      else
+        g_debug ("V4L2_EVENT_PRI_CLIENT_USAGE not supported\n");
+
+      g_object_unref (v4l2sink);
       break;
     }
     case GST_MESSAGE_EOS:
@@ -323,7 +398,7 @@ loopback_pipeline_create (GMainLoop *loop)
   g_object_ref_sink (pipeline);
   appsrc = gst_element_factory_make ("appsrc", NULL);
   videoconvert = gst_element_factory_make ("videoconvert", NULL);
-  v4l2sink = gst_element_factory_make ("v4l2sink", NULL);
+  v4l2sink = gst_element_factory_make ("v4l2sink", "v4l2sink");
 
   g_object_set (appsrc,
                 "stream-type", GST_APP_STREAM_TYPE_STREAM,
