@@ -65,9 +65,11 @@ PKG_CHECK_MODULES(DEPS, [glib-2.0])
 
 dnl required versions of gstreamer and plugins-base
 GST_REQUIRED=1.0.0
+GSTPB_REQUIRED=1.0.0
 
 PKG_CHECK_MODULES(GST, [
   gstreamer-1.0 >= $GST_REQUIRED
+  gstreamer-app-1.0 >= $GSTPB_REQUIRED
 ], [
   AC_SUBST(GST_CFLAGS)
   AC_SUBST(GST_LIBS)
