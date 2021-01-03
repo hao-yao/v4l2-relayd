@@ -41,6 +41,7 @@ static gchar *opt_capture_caps = NULL;
 static gchar *opt_output = NULL;
 static gchar *opt_output_caps = NULL;
 
+static GMainLoop *loop = NULL;
 static guint icamerasrc_bus_watch_id = 0;
 static guint loopback_bus_watch_id = 0;
 static guint loopback_push_buffer_id = 0;
@@ -50,7 +51,7 @@ static int         capture_device_id_from_string (const gchar *value) G_GNUC_UNU
 static gboolean    icamerasrc_pipeline_bus_call  (GstBus      *bus,
                                                   GstMessage  *msg,
                                                   gpointer     data) G_GNUC_UNUSED;
-static GstElement* icamerasrc_pipeline_create    (GMainLoop   *loop) G_GNUC_UNUSED;
+static GstElement* icamerasrc_pipeline_create    () G_GNUC_UNUSED;
 
 static const GOptionEntry opt_entries[] =
 {
@@ -151,8 +152,6 @@ icamerasrc_pipeline_bus_call (GstBus     *bus,
                               GstMessage *msg,
                               gpointer    data)
 {
-  GMainLoop *loop = (GMainLoop *) data;
-
   switch (GST_MESSAGE_TYPE (msg)) {
     case GST_MESSAGE_EOS:
       g_print ("End of stream\n");
@@ -180,7 +179,7 @@ icamerasrc_pipeline_bus_call (GstBus     *bus,
 }
 
 static GstElement*
-icamerasrc_pipeline_create (GMainLoop *loop)
+icamerasrc_pipeline_create ()
 {
   GstElement *pipeline, *icamerasrc, *videoconvert, *xvimagesink;
   GstBus *bus;
@@ -214,7 +213,7 @@ icamerasrc_pipeline_create (GMainLoop *loop)
 
   bus = gst_pipeline_get_bus (GST_PIPELINE (pipeline));
   icamerasrc_bus_watch_id =
-      gst_bus_add_watch (bus, icamerasrc_pipeline_bus_call, loop);
+      gst_bus_add_watch (bus, icamerasrc_pipeline_bus_call, NULL);
   gst_object_unref (bus);
 
   return pipeline;
@@ -261,8 +260,6 @@ loopback_pipeline_bus_call (GstBus     *bus,
                             GstMessage *msg,
                             gpointer    data)
 {
-  GMainLoop *loop = (GMainLoop *) data;
-
   switch (GST_MESSAGE_TYPE (msg)) {
     case GST_MESSAGE_STATE_CHANGED: {
       GstPipeline *pipeline;
@@ -389,7 +386,7 @@ static GstAppSrcCallbacks loopback_appsrc_callbacks = {
 };
 
 static GstElement*
-loopback_pipeline_create (GMainLoop *loop)
+loopback_pipeline_create ()
 {
   GstElement *pipeline, *appsrc, *videoconvert, *v4l2sink;
   GstBus *bus;
@@ -424,7 +421,7 @@ loopback_pipeline_create (GMainLoop *loop)
 
   bus = gst_pipeline_get_bus (GST_PIPELINE (pipeline));
   loopback_bus_watch_id =
-      gst_bus_add_watch (bus, loopback_pipeline_bus_call, loop);
+      gst_bus_add_watch (bus, loopback_pipeline_bus_call, NULL);
   gst_object_unref (bus);
 
   return pipeline;
@@ -434,13 +431,12 @@ int
 main (int   argc,
       char *argv[])
 {
-  GMainLoop *loop;
   GstElement *loopback_pipeline;
 
   parse_args (argc, argv);
 
   loop = g_main_loop_new (NULL, FALSE);
-  loopback_pipeline = loopback_pipeline_create (loop);
+  loopback_pipeline = loopback_pipeline_create ();
 
   /* Create gstreamer elements */
 
