@@ -37,23 +37,23 @@ struct v4l2_event_client_usage {
 static gboolean opt_background = FALSE;
 static gboolean opt_debug = FALSE;
 static gboolean opt_version = FALSE;
-static gchar *opt_capture = NULL;
-static gchar *opt_capture_caps = NULL;
+static gchar *opt_input = NULL;
+static gchar *opt_input_caps = NULL;
 static gchar *opt_output = NULL;
 static gchar *opt_output_caps = NULL;
 
 static GMainLoop *loop = NULL;
-static guint icamerasrc_bus_watch_id = 0;
-static guint loopback_bus_watch_id = 0;
-static guint loopback_push_buffer_id = 0;
-static guint loopback_event_poll_id = 0;
-static GstElement *icamerasrc_pipeline = NULL;
+static guint input_bus_watch_id = 0;
+static guint output_bus_watch_id = 0;
+static guint output_push_buffer_id = 0;
+static guint v4l2_event_poll_id = 0;
+static GstElement *input_pipeline = NULL;
 
 static int         capture_device_id_from_string (const gchar *value);
-static gboolean    icamerasrc_pipeline_bus_call  (GstBus      *bus,
+static gboolean    input_pipeline_bus_call       (GstBus      *bus,
                                                   GstMessage  *msg,
                                                   gpointer     data);
-static GstElement* icamerasrc_pipeline_create    (GstCaps     *sink_caps);
+static GstElement* input_pipeline_create         (GstCaps     *sink_caps);
 
 static const GOptionEntry opt_entries[] =
 {
@@ -63,10 +63,10 @@ static const GOptionEntry opt_entries[] =
     &opt_debug, "Print debugging information", NULL },
   { "version",    'v', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE,
     &opt_version, "Show version", NULL },
-  { "capture",    'c', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING,
-    &opt_capture, "Specify capturing device name", NULL},
-  { "capture-caps", 0, G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING,
-    &opt_capture_caps, "Specify optional capturing device capabilities", NULL},
+  { "input",      'i', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING,
+    &opt_input, "Specify input device", NULL},
+  { "input-caps",  0,  G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING,
+    &opt_input_caps, "Specify optional input device capabilities", NULL},
   { "output",     'o', G_OPTION_FLAG_NONE, G_OPTION_ARG_FILENAME,
     &opt_output, "Specify output device", NULL},
   { "output-caps", 0,  G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING,
@@ -150,9 +150,9 @@ capture_device_id_from_string (const gchar *value)
 }
 
 static gboolean
-icamerasrc_pipeline_bus_call (GstBus     *bus,
-                              GstMessage *msg,
-                              gpointer    data)
+input_pipeline_bus_call (GstBus     *bus,
+                         GstMessage *msg,
+                         gpointer    data)
 {
   switch (GST_MESSAGE_TYPE (msg)) {
     case GST_MESSAGE_ERROR: {
@@ -165,7 +165,7 @@ icamerasrc_pipeline_bus_call (GstBus     *bus,
       g_printerr ("Error: %s\n", error->message);
       g_error_free (error);
 
-      gst_element_set_state (icamerasrc_pipeline, GST_STATE_NULL);
+      gst_element_set_state (input_pipeline, GST_STATE_NULL);
       break;
     }
     default:
@@ -176,21 +176,21 @@ icamerasrc_pipeline_bus_call (GstBus     *bus,
 }
 
 static GstElement*
-icamerasrc_pipeline_create (GstCaps *sink_caps)
+input_pipeline_create (GstCaps *sink_caps)
 {
   GstElement *pipeline, *icamerasrc, *videoconvert, *appsink;
   GstBus *bus;
 
-  pipeline = gst_pipeline_new ("icamerasrc");
+  pipeline = gst_pipeline_new ("input");
   g_object_ref_sink (pipeline);
   icamerasrc = gst_element_factory_make ("icamerasrc", NULL);
   videoconvert = gst_element_factory_make ("videoconvert", NULL);
   appsink = gst_element_factory_make ("appsink", "appsink");
 
-  if (opt_capture != NULL) {
+  if (opt_input != NULL) {
     int id;
 
-    id = capture_device_id_from_string (opt_capture);
+    id = capture_device_id_from_string (opt_input);
     if (id >= 0)
       g_object_set (icamerasrc, "device-name", id, NULL);
   }
@@ -204,10 +204,10 @@ icamerasrc_pipeline_create (GstCaps *sink_caps)
   gst_bin_add_many (GST_BIN (pipeline),
                     icamerasrc, videoconvert, appsink, NULL);
 
-  if (opt_capture_caps != NULL) {
+  if (opt_input_caps != NULL) {
     GstCaps *caps;
 
-    caps = gst_caps_from_string (opt_capture_caps);
+    caps = gst_caps_from_string (opt_input_caps);
     gst_element_link_filtered (icamerasrc, videoconvert, caps);
     gst_element_link (videoconvert, appsink);
     gst_caps_unref (caps);
@@ -215,37 +215,37 @@ icamerasrc_pipeline_create (GstCaps *sink_caps)
     gst_element_link_many (icamerasrc, videoconvert, appsink, NULL);
 
   bus = gst_pipeline_get_bus (GST_PIPELINE (pipeline));
-  icamerasrc_bus_watch_id =
-      gst_bus_add_watch (bus, icamerasrc_pipeline_bus_call, NULL);
+  input_bus_watch_id =
+      gst_bus_add_watch (bus, input_pipeline_bus_call, NULL);
   gst_object_unref (bus);
 
   return pipeline;
 }
 
 static void
-icamerasrc_pipeline_enable (GstPipeline *loopback_pipeline)
+input_pipeline_enable (GstPipeline *output_pipeline)
 {
-  if (icamerasrc_pipeline == NULL) {
+  if (input_pipeline == NULL) {
     GstElement *appsrc;
     GstCaps *caps;
 
-    appsrc = gst_bin_get_by_name (GST_BIN (loopback_pipeline), "appsrc");
+    appsrc = gst_bin_get_by_name (GST_BIN (output_pipeline), "appsrc");
     caps = gst_app_src_get_caps (GST_APP_SRC (appsrc));
 
-    icamerasrc_pipeline = icamerasrc_pipeline_create (caps);
+    input_pipeline = input_pipeline_create (caps);
 
     gst_caps_unref (caps);
     g_object_unref (appsrc);
   }
 
-  gst_element_set_state (icamerasrc_pipeline, GST_STATE_PLAYING);
+  gst_element_set_state (input_pipeline, GST_STATE_PLAYING);
 }
 
 static void
-icamerasrc_pipeline_disable ()
+input_pipeline_disable ()
 {
-  if (icamerasrc_pipeline != NULL)
-    gst_element_set_state (icamerasrc_pipeline, GST_STATE_NULL);
+  if (input_pipeline != NULL)
+    gst_element_set_state (input_pipeline, GST_STATE_NULL);
 }
 
 static gboolean
@@ -253,7 +253,7 @@ v4l2sink_event_callback (gint         fd,
                          GIOCondition condition,
                          gpointer     user_data)
 {
-  GstPipeline *loopback_pipeline = (GstPipeline *) user_data;
+  GstPipeline *output_pipeline = (GstPipeline *) user_data;
   struct v4l2_event event;
   int ret;
 
@@ -275,9 +275,9 @@ v4l2sink_event_callback (gint         fd,
         memcpy (&usage, &event.u, sizeof usage);
         g_print ("Current V4L2 client: %u\n", usage.count);
         if (usage.count)
-          icamerasrc_pipeline_enable (loopback_pipeline);
+          input_pipeline_enable (output_pipeline);
         else
-          icamerasrc_pipeline_disable (loopback_pipeline);
+          input_pipeline_disable (output_pipeline);
 
         break;
       }
@@ -290,9 +290,9 @@ v4l2sink_event_callback (gint         fd,
 }
 
 static gboolean
-loopback_pipeline_bus_call (GstBus     *bus,
-                            GstMessage *msg,
-                            gpointer    data)
+output_pipeline_bus_call (GstBus     *bus,
+                          GstMessage *msg,
+                          gpointer    data)
 {
   switch (GST_MESSAGE_TYPE (msg)) {
     case GST_MESSAGE_STATE_CHANGED: {
@@ -310,9 +310,9 @@ loopback_pipeline_bus_call (GstBus     *bus,
                gst_element_state_get_name (old_state),
                gst_element_state_get_name (new_state));
       if (old_state == GST_STATE_PLAYING) {
-        if (loopback_event_poll_id > 0) {
-          g_source_remove (loopback_event_poll_id);
-          loopback_event_poll_id = 0;
+        if (v4l2_event_poll_id > 0) {
+          g_source_remove (v4l2_event_poll_id);
+          v4l2_event_poll_id = 0;
         }
         break;
       }
@@ -329,7 +329,7 @@ loopback_pipeline_bus_call (GstBus     *bus,
       sub.id = 0;
       sub.flags = V4L2_EVENT_SUB_FL_SEND_INITIAL;
       if (ioctl (fd, VIDIOC_SUBSCRIBE_EVENT, &sub) == 0)
-        loopback_event_poll_id =
+        v4l2_event_poll_id =
             g_unix_fd_add (fd, G_IO_PRI, v4l2sink_event_callback, pipeline);
       else
         g_debug ("V4L2_EVENT_PRI_CLIENT_USAGE not supported\n");
@@ -363,7 +363,7 @@ loopback_pipeline_bus_call (GstBus     *bus,
 }
 
 static gboolean
-loopback_appsrc_push_data (GstAppSrc *appsrc)
+output_appsrc_push_data (GstAppSrc *appsrc)
 {
   GstState state;
   GstCaps *caps;
@@ -371,14 +371,14 @@ loopback_appsrc_push_data (GstAppSrc *appsrc)
   GstBuffer *buffer = NULL;
   gboolean ret = G_SOURCE_REMOVE;
 
-  if (icamerasrc_pipeline != NULL &&
+  if (input_pipeline != NULL &&
       (GST_STATE_CHANGE_SUCCESS ==
-           gst_element_get_state (icamerasrc_pipeline, &state, NULL, 0)) &&
+           gst_element_get_state (input_pipeline, &state, NULL, 0)) &&
       (state == GST_STATE_PLAYING)) {
     GstElement *appsink;
     GstSample *sample;
 
-    appsink = gst_bin_get_by_name (GST_BIN (icamerasrc_pipeline), "appsink");
+    appsink = gst_bin_get_by_name (GST_BIN (input_pipeline), "appsink");
     sample = gst_app_sink_try_pull_sample (GST_APP_SINK (appsink), 0);
     if (sample != NULL) {
       buffer = gst_sample_get_buffer (sample);
@@ -388,7 +388,7 @@ loopback_appsrc_push_data (GstAppSrc *appsrc)
       g_object_unref (appsink);
 
       if (ret == G_SOURCE_REMOVE)
-        loopback_push_buffer_id = 0;
+        output_push_buffer_id = 0;
       return ret;
     }
 
@@ -418,45 +418,45 @@ caps_error:
     gst_caps_unref (caps);
 
   if (ret == G_SOURCE_REMOVE)
-    loopback_push_buffer_id = 0;
+    output_push_buffer_id = 0;
 
   return ret;
 }
 
 static void
-loopback_appsrc_need_data (GstAppSrc *appsrc,
-                           guint      length,
-                           gpointer   user_data)
+output_appsrc_need_data (GstAppSrc *appsrc,
+                         guint      length,
+                         gpointer   user_data)
 {
-  if (loopback_push_buffer_id == 0) {
-    loopback_push_buffer_id =
-        g_idle_add ((GSourceFunc) loopback_appsrc_push_data, appsrc);
+  if (output_push_buffer_id == 0) {
+    output_push_buffer_id =
+        g_idle_add ((GSourceFunc) output_appsrc_push_data, appsrc);
   }
 }
 
 static void
-loopback_appsrc_enough_data (GstAppSrc *appsrc,
-                             gpointer   user_data)
+output_appsrc_enough_data (GstAppSrc *appsrc,
+                           gpointer   user_data)
 {
-  if (loopback_push_buffer_id != 0) {
-    g_source_remove (loopback_push_buffer_id);
-    loopback_push_buffer_id = 0;
+  if (output_push_buffer_id != 0) {
+    g_source_remove (output_push_buffer_id);
+    output_push_buffer_id = 0;
   }
 }
 
-static GstAppSrcCallbacks loopback_appsrc_callbacks = {
-  .need_data = loopback_appsrc_need_data,
-  .enough_data = loopback_appsrc_enough_data,
+static GstAppSrcCallbacks output_appsrc_callbacks = {
+  .need_data = output_appsrc_need_data,
+  .enough_data = output_appsrc_enough_data,
   .seek_data = NULL
 };
 
 static GstElement*
-loopback_pipeline_create ()
+output_pipeline_create ()
 {
   GstElement *pipeline, *appsrc, *videoconvert, *v4l2sink;
   GstBus *bus;
 
-  pipeline = gst_pipeline_new ("v4l2loopback");
+  pipeline = gst_pipeline_new ("output");
   g_object_ref_sink (pipeline);
   appsrc = gst_element_factory_make ("appsrc", "appsrc");
   videoconvert = gst_element_factory_make ("videoconvert", NULL);
@@ -475,7 +475,7 @@ loopback_pipeline_create ()
     gst_caps_unref (caps);
   }
 
-  gst_app_src_set_callbacks (GST_APP_SRC (appsrc), &loopback_appsrc_callbacks,
+  gst_app_src_set_callbacks (GST_APP_SRC (appsrc), &output_appsrc_callbacks,
                              pipeline, NULL);
 
   g_object_set (v4l2sink, "device", opt_output, NULL);
@@ -485,8 +485,8 @@ loopback_pipeline_create ()
   gst_element_link_many (appsrc, videoconvert, v4l2sink, NULL);
 
   bus = gst_pipeline_get_bus (GST_PIPELINE (pipeline));
-  loopback_bus_watch_id =
-      gst_bus_add_watch (bus, loopback_pipeline_bus_call, NULL);
+  output_bus_watch_id =
+      gst_bus_add_watch (bus, output_pipeline_bus_call, NULL);
   gst_object_unref (bus);
 
   return pipeline;
@@ -496,29 +496,29 @@ int
 main (int   argc,
       char *argv[])
 {
-  GstElement *loopback_pipeline;
+  GstElement *output_pipeline;
 
   parse_args (argc, argv);
 
   loop = g_main_loop_new (NULL, FALSE);
-  loopback_pipeline = loopback_pipeline_create ();
+  output_pipeline = output_pipeline_create ();
 
   /* Create gstreamer elements */
 
   g_print ("Now playing...\n");
-  gst_element_set_state (loopback_pipeline, GST_STATE_PLAYING);
+  gst_element_set_state (output_pipeline, GST_STATE_PLAYING);
 
   g_print ("Running...\n");
   g_main_loop_run (loop);
 
-  g_source_remove (icamerasrc_bus_watch_id);
-  g_source_remove (loopback_bus_watch_id);
+  g_source_remove (input_bus_watch_id);
+  g_source_remove (output_bus_watch_id);
 
-  gst_element_set_state (loopback_pipeline, GST_STATE_NULL);
-  gst_object_unref (GST_OBJECT (loopback_pipeline));
+  gst_element_set_state (output_pipeline, GST_STATE_NULL);
+  gst_object_unref (GST_OBJECT (output_pipeline));
 
-  gst_element_set_state (icamerasrc_pipeline, GST_STATE_NULL);
-  gst_object_unref (GST_OBJECT (icamerasrc_pipeline));
+  gst_element_set_state (input_pipeline, GST_STATE_NULL);
+  gst_object_unref (GST_OBJECT (input_pipeline));
 
   g_main_loop_unref (loop);
 
