@@ -46,6 +46,7 @@ static guint output_bus_watch_id = 0;
 static guint output_push_buffer_id = 0;
 static guint v4l2_event_poll_id = 0;
 static GstElement *input_pipeline = NULL;
+static GstElement *output_pipeline = NULL;
 
 static gboolean    input_pipeline_bus_call (GstBus     *bus,
                                             GstMessage *msg,
@@ -176,7 +177,7 @@ input_pipeline_create (GstCaps *sink_caps)
 }
 
 static void
-input_pipeline_enable (GstPipeline *output_pipeline)
+input_pipeline_enable ()
 {
   if (input_pipeline == NULL) {
     GstElement *appsrc;
@@ -204,9 +205,8 @@ input_pipeline_disable ()
 static gboolean
 v4l2sink_event_callback (gint         fd,
                          GIOCondition condition,
-                         gpointer     user_data)
+                         gpointer     user_data G_GNUC_UNUSED)
 {
-  GstPipeline *output_pipeline = (GstPipeline *) user_data;
   struct v4l2_event event;
   int ret;
 
@@ -228,9 +228,9 @@ v4l2sink_event_callback (gint         fd,
         memcpy (&usage, &event.u, sizeof usage);
         g_print ("Current V4L2 client: %u\n", usage.count);
         if (usage.count)
-          input_pipeline_enable (output_pipeline);
+          input_pipeline_enable ();
         else
-          input_pipeline_disable (output_pipeline);
+          input_pipeline_disable ();
 
         break;
       }
@@ -245,11 +245,10 @@ v4l2sink_event_callback (gint         fd,
 static gboolean
 output_pipeline_bus_call (GstBus     *bus,
                           GstMessage *msg,
-                          gpointer    data)
+                          gpointer    data G_GNUC_UNUSED)
 {
   switch (GST_MESSAGE_TYPE (msg)) {
     case GST_MESSAGE_STATE_CHANGED: {
-      GstPipeline *pipeline;
       GstState old_state, new_state;
       GstElement *v4l2sink;
       int fd = -1;
@@ -273,8 +272,8 @@ output_pipeline_bus_call (GstBus     *bus,
       if (new_state != GST_STATE_PLAYING)
         break;
 
-      pipeline = GST_PIPELINE (GST_MESSAGE_SRC (msg));
-      v4l2sink = gst_bin_get_by_name (GST_BIN (pipeline), "v4l2sink");
+      g_assert (GST_ELEMENT (GST_MESSAGE_SRC (msg)) == output_pipeline);
+      v4l2sink = gst_bin_get_by_name (GST_BIN (output_pipeline), "v4l2sink");
       if (v4l2sink == NULL)
         break;
 
@@ -286,7 +285,7 @@ output_pipeline_bus_call (GstBus     *bus,
       sub.flags = V4L2_EVENT_SUB_FL_SEND_INITIAL;
       if (ioctl (fd, VIDIOC_SUBSCRIBE_EVENT, &sub) == 0)
         v4l2_event_poll_id =
-            g_unix_fd_add (fd, G_IO_PRI, v4l2sink_event_callback, pipeline);
+            g_unix_fd_add (fd, G_IO_PRI, v4l2sink_event_callback, NULL);
       else
         g_debug ("V4L2_EVENT_PRI_CLIENT_USAGE not supported\n");
 
@@ -381,8 +380,8 @@ caps_error:
 
 static void
 output_appsrc_need_data (GstAppSrc *appsrc,
-                         guint      length,
-                         gpointer   user_data)
+                         guint      length G_GNUC_UNUSED,
+                         gpointer   user_data G_GNUC_UNUSED)
 {
   if (output_push_buffer_id == 0) {
     output_push_buffer_id =
@@ -391,8 +390,8 @@ output_appsrc_need_data (GstAppSrc *appsrc,
 }
 
 static void
-output_appsrc_enough_data (GstAppSrc *appsrc,
-                           gpointer   user_data)
+output_appsrc_enough_data (GstAppSrc *appsrc G_GNUC_UNUSED,
+                           gpointer   user_data G_GNUC_UNUSED)
 {
   if (output_push_buffer_id != 0) {
     g_source_remove (output_push_buffer_id);
@@ -428,7 +427,7 @@ output_pipeline_create ()
                 "is-live", TRUE,
                 NULL);
   gst_app_src_set_callbacks (GST_APP_SRC (appsrc), &output_appsrc_callbacks,
-                             pipeline, NULL);
+                             NULL, NULL);
   g_object_unref (appsrc);
 
   bus = gst_pipeline_get_bus (GST_PIPELINE (pipeline));
@@ -443,7 +442,6 @@ int
 main (int   argc,
       char *argv[])
 {
-  GstElement *output_pipeline;
 
   parse_args (argc, argv);
 
