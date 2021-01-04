@@ -51,7 +51,7 @@ static GstElement *output_pipeline = NULL;
 static gboolean    input_pipeline_bus_call (GstBus     *bus,
                                             GstMessage *msg,
                                             gpointer    data);
-static GstElement* input_pipeline_create   (GstCaps    *sink_caps);
+static GstElement* input_pipeline_create   (GstElement *appsrc);
 
 static const GOptionEntry opt_entries[] =
 {
@@ -145,11 +145,31 @@ input_pipeline_bus_call (GstBus     *bus,
   return TRUE;
 }
 
+static GstFlowReturn
+input_appsink_new_sample (GstAppSink *appsink,
+                          gpointer    user_data)
+{
+  GstAppSrc *appsrc = (GstAppSrc *) user_data;
+  GstSample *sample;
+  GstBuffer *buffer;
+
+  sample = gst_app_sink_pull_sample (appsink);
+  buffer = gst_sample_get_buffer (sample);
+  /* gst_app_src_push_buffer wants to take the ownership of the buffer,
+   * so it must hold an additional reference first. */
+  gst_buffer_ref (buffer);
+  gst_app_src_push_buffer (appsrc, buffer);
+  gst_sample_unref (sample);
+
+  return GST_FLOW_OK;
+}
+
 static GstElement*
-input_pipeline_create (GstCaps *sink_caps)
+input_pipeline_create (GstElement *appsrc)
 {
   GstElement *pipeline, *appsink;
   GError *error = NULL;
+  GstCaps *caps;
   GstBus *bus;
 
   pipeline = gst_parse_launch (opt_input, &error);
@@ -161,11 +181,17 @@ input_pipeline_create (GstCaps *sink_caps)
   g_object_ref_sink (pipeline);
 
   appsink = gst_bin_get_by_name (GST_BIN (pipeline), "appsink");
+  caps = gst_app_src_get_caps (GST_APP_SRC (appsrc));
   g_object_set (appsink,
-                "caps", sink_caps,
+                "caps", caps,
                 "drop", TRUE,
                 "max-buffers", 4,
+                "emit-signals", TRUE,
                 NULL);
+  g_signal_connect_object (appsink,
+                           "new-sample", (GCallback) input_appsink_new_sample,
+                           appsrc, 0);
+  gst_caps_unref (caps);
   g_object_unref (appsink);
 
   bus = gst_pipeline_get_bus (GST_PIPELINE (pipeline));
@@ -181,14 +207,9 @@ input_pipeline_enable ()
 {
   if (input_pipeline == NULL) {
     GstElement *appsrc;
-    GstCaps *caps;
 
     appsrc = gst_bin_get_by_name (GST_BIN (output_pipeline), "appsrc");
-    caps = gst_app_src_get_caps (GST_APP_SRC (appsrc));
-
-    input_pipeline = input_pipeline_create (caps);
-
-    gst_caps_unref (caps);
+    input_pipeline = input_pipeline_create (appsrc);
     g_object_unref (appsrc);
   }
 
@@ -258,7 +279,7 @@ output_pipeline_bus_call (GstBus     *bus,
         break;
 
       gst_message_parse_state_changed (msg, &old_state, &new_state, NULL);
-      g_print ("Pipeline state changed from %s to %s:\n",
+      g_print ("Output pipeline state changed from %s to %s:\n",
                gst_element_state_get_name (old_state),
                gst_element_state_get_name (new_state));
       if (old_state == GST_STATE_PLAYING) {
@@ -320,41 +341,10 @@ output_pipeline_bus_call (GstBus     *bus,
 static gboolean
 output_appsrc_push_data (GstAppSrc *appsrc)
 {
-  GstState state;
   GstCaps *caps;
   GstVideoInfo info;
-  GstBuffer *buffer = NULL;
+  GstBuffer *buffer;
   gboolean ret = G_SOURCE_REMOVE;
-
-  if (input_pipeline != NULL &&
-      (GST_STATE_CHANGE_SUCCESS ==
-           gst_element_get_state (input_pipeline, &state, NULL, 0)) &&
-      (state == GST_STATE_PLAYING)) {
-    GstElement *appsink;
-    GstSample *sample;
-
-    appsink = gst_bin_get_by_name (GST_BIN (input_pipeline), "appsink");
-    sample = gst_app_sink_try_pull_sample (GST_APP_SINK (appsink), 0);
-    if (sample != NULL) {
-      buffer = gst_sample_get_buffer (sample);
-      gst_buffer_ref (buffer);
-      ret = GST_FLOW_OK == gst_app_src_push_buffer (appsrc, buffer);
-      gst_sample_unref (sample);
-      g_object_unref (appsink);
-
-      if (ret == G_SOURCE_REMOVE)
-        output_push_buffer_id = 0;
-      return ret;
-    }
-
-    if (!gst_app_sink_is_eos (GST_APP_SINK (appsink))) {
-      g_object_unref (appsink);
-      return G_SOURCE_CONTINUE;
-    }
-
-    g_object_unref (appsink);
-    /* fallback */
-  }
 
   gst_video_info_init (&info);
   caps = gst_app_src_get_caps (appsrc);
@@ -383,10 +373,17 @@ output_appsrc_need_data (GstAppSrc *appsrc,
                          guint      length G_GNUC_UNUSED,
                          gpointer   user_data G_GNUC_UNUSED)
 {
-  if (output_push_buffer_id == 0) {
-    output_push_buffer_id =
-        g_idle_add ((GSourceFunc) output_appsrc_push_data, appsrc);
-  }
+  GstState state;
+
+  if (output_push_buffer_id != 0)
+    return;
+
+  gst_element_get_state (output_pipeline, &state, NULL, 0);
+  if (state == GST_STATE_PLAYING)
+      return;
+
+  output_push_buffer_id =
+      g_idle_add ((GSourceFunc) output_appsrc_push_data, appsrc);
 }
 
 static void
