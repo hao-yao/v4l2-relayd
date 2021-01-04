@@ -38,9 +38,7 @@ static gboolean opt_background = FALSE;
 static gboolean opt_debug = FALSE;
 static gboolean opt_version = FALSE;
 static gchar *opt_input = NULL;
-static gchar *opt_input_caps = NULL;
 static gchar *opt_output = NULL;
-static gchar *opt_output_caps = NULL;
 
 static GMainLoop *loop = NULL;
 static guint input_bus_watch_id = 0;
@@ -49,11 +47,10 @@ static guint output_push_buffer_id = 0;
 static guint v4l2_event_poll_id = 0;
 static GstElement *input_pipeline = NULL;
 
-static int         capture_device_id_from_string (const gchar *value);
-static gboolean    input_pipeline_bus_call       (GstBus      *bus,
-                                                  GstMessage  *msg,
-                                                  gpointer     data);
-static GstElement* input_pipeline_create         (GstCaps     *sink_caps);
+static gboolean    input_pipeline_bus_call (GstBus     *bus,
+                                            GstMessage *msg,
+                                            gpointer    data);
+static GstElement* input_pipeline_create   (GstCaps    *sink_caps);
 
 static const GOptionEntry opt_entries[] =
 {
@@ -64,13 +61,9 @@ static const GOptionEntry opt_entries[] =
   { "version",    'v', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE,
     &opt_version, "Show version", NULL },
   { "input",      'i', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING,
-    &opt_input, "Specify input device", NULL},
-  { "input-caps",  0,  G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING,
-    &opt_input_caps, "Specify optional input device capabilities", NULL},
+    &opt_input, "Specify input GStreamer pipeline description", NULL},
   { "output",     'o', G_OPTION_FLAG_NONE, G_OPTION_ARG_FILENAME,
-    &opt_output, "Specify output device", NULL},
-  { "output-caps", 0,  G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING,
-    &opt_output_caps, "Specify optional output device capabilities", NULL},
+    &opt_output, "Specify output GStreamer pipeline description", NULL},
   { NULL }
 };
 
@@ -125,30 +118,6 @@ parse_args (int   argc,
   }
 }
 
-static int
-capture_device_id_from_string (const gchar *value)
-{
-  GType enum_type;
-  GEnumClass *enum_class;
-  GEnumValue *enum_value;
-  int id = -1;
-
-  enum_type = g_type_from_name ("GstCamerasrcDeviceName");
-  g_assert (G_TYPE_IS_ENUM (enum_type));
-  enum_class = g_type_class_ref (enum_type);
-  g_assert (enum_class != NULL);
-
-  enum_value = g_enum_get_value_by_name (enum_class, value);
-  if (enum_value == NULL)
-    enum_value = g_enum_get_value_by_nick (enum_class, value);
-  if (enum_value != NULL)
-    id = enum_value->value;
-
-  g_type_class_unref (enum_class);
-
-  return id;
-}
-
 static gboolean
 input_pipeline_bus_call (GstBus     *bus,
                          GstMessage *msg,
@@ -178,41 +147,25 @@ input_pipeline_bus_call (GstBus     *bus,
 static GstElement*
 input_pipeline_create (GstCaps *sink_caps)
 {
-  GstElement *pipeline, *icamerasrc, *videoconvert, *appsink;
+  GstElement *pipeline, *appsink;
+  GError *error = NULL;
   GstBus *bus;
 
-  pipeline = gst_pipeline_new ("input");
-  g_object_ref_sink (pipeline);
-  icamerasrc = gst_element_factory_make ("icamerasrc", NULL);
-  videoconvert = gst_element_factory_make ("videoconvert", NULL);
-  appsink = gst_element_factory_make ("appsink", "appsink");
-
-  if (opt_input != NULL) {
-    int id;
-
-    id = capture_device_id_from_string (opt_input);
-    if (id >= 0)
-      g_object_set (icamerasrc, "device-name", id, NULL);
+  pipeline = gst_parse_launch (opt_input, &error);
+  if (pipeline == NULL) {
+    g_printerr ("Error: %s\n", error->message);
+    g_error_free (error);
+    return NULL;
   }
+  g_object_ref_sink (pipeline);
 
+  appsink = gst_bin_get_by_name (GST_BIN (pipeline), "appsink");
   g_object_set (appsink,
                 "caps", sink_caps,
                 "drop", TRUE,
                 "max-buffers", 4,
                 NULL);
-
-  gst_bin_add_many (GST_BIN (pipeline),
-                    icamerasrc, videoconvert, appsink, NULL);
-
-  if (opt_input_caps != NULL) {
-    GstCaps *caps;
-
-    caps = gst_caps_from_string (opt_input_caps);
-    gst_element_link_filtered (icamerasrc, videoconvert, caps);
-    gst_element_link (videoconvert, appsink);
-    gst_caps_unref (caps);
-  } else
-    gst_element_link_many (icamerasrc, videoconvert, appsink, NULL);
+  g_object_unref (appsink);
 
   bus = gst_pipeline_get_bus (GST_PIPELINE (pipeline));
   input_bus_watch_id =
@@ -322,6 +275,9 @@ output_pipeline_bus_call (GstBus     *bus,
 
       pipeline = GST_PIPELINE (GST_MESSAGE_SRC (msg));
       v4l2sink = gst_bin_get_by_name (GST_BIN (pipeline), "v4l2sink");
+      if (v4l2sink == NULL)
+        break;
+
       g_object_get (v4l2sink, "device-fd", &fd, NULL);
 
       memset (&sub, 0, sizeof (sub));
@@ -453,36 +409,27 @@ static GstAppSrcCallbacks output_appsrc_callbacks = {
 static GstElement*
 output_pipeline_create ()
 {
-  GstElement *pipeline, *appsrc, *videoconvert, *v4l2sink;
+  GstElement *pipeline, *appsrc;
+  GError *error = NULL;
   GstBus *bus;
 
-  pipeline = gst_pipeline_new ("output");
+  pipeline = gst_parse_launch (opt_output, &error);
+  if (pipeline == NULL) {
+    g_printerr ("Error: %s\n", error->message);
+    g_error_free (error);
+    return NULL;
+  }
   g_object_ref_sink (pipeline);
-  appsrc = gst_element_factory_make ("appsrc", "appsrc");
-  videoconvert = gst_element_factory_make ("videoconvert", NULL);
-  v4l2sink = gst_element_factory_make ("v4l2sink", "v4l2sink");
 
+  appsrc = gst_bin_get_by_name (GST_BIN (pipeline), "appsrc");
   g_object_set (appsrc,
                 "stream-type", GST_APP_STREAM_TYPE_STREAM,
                 "format", GST_FORMAT_DEFAULT,
                 "is-live", TRUE,
                 NULL);
-  if (opt_output_caps != NULL) {
-    GstCaps *caps;
-
-    caps = gst_caps_from_string (opt_output_caps);
-    g_object_set (appsrc, "caps", caps, NULL);
-    gst_caps_unref (caps);
-  }
-
   gst_app_src_set_callbacks (GST_APP_SRC (appsrc), &output_appsrc_callbacks,
                              pipeline, NULL);
-
-  g_object_set (v4l2sink, "device", opt_output, NULL);
-
-  gst_bin_add_many (GST_BIN (pipeline), appsrc, videoconvert, v4l2sink, NULL);
-
-  gst_element_link_many (appsrc, videoconvert, v4l2sink, NULL);
+  g_object_unref (appsrc);
 
   bus = gst_pipeline_get_bus (GST_PIPELINE (pipeline));
   output_bus_watch_id =
