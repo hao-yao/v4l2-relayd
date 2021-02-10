@@ -9,10 +9,10 @@ m4_define([v4l2_relayd_version],
 m4_define([v4l2_relayd_api_version], [0.0])
 
 AC_PREREQ([2.62])
-AC_INIT([v4l2_relayd], [v4l2_relayd_version],
-        [https://github.com/v4l2_relayd/v4l2_relayd/issues],
-        [v4l2_relayd],
-        [https://github.com/v4l2_relayd/v4l2_relayd])
+AC_INIT([v4l2-relayd], [v4l2_relayd_version],
+        [https://gitlab.com/vicamo/v4l2-relayd/-/issues],
+        [v4l2-relayd],
+        [https://gitlab.com/vicamo/v4l2-relayd])
 
 AC_CONFIG_HEADERS([config.h])
 AC_CONFIG_MACRO_DIR([m4])
