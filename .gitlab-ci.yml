@@ -1,0 +1,52 @@
+include:
+  - template: 'Workflows/MergeRequest-Pipelines.gitlab-ci.yml'
+
+stages:
+  - dist
+  - build
+
+.install-deps: &install-deps |
+  apt-get update --quiet
+  apt-get install --no-install-recommends --yes \
+      build-essential \
+      libgstreamer1.0-dev \
+      libgstreamer-plugins-base1.0-dev \
+      pkg-config
+
+dist:
+  stage: dist
+  image: buildpack-deps
+  before_script:
+    - *install-deps
+  script:
+    - ./autogen.sh
+    - make V=1 -j $(nproc)
+    - make V=1 install DESTDIR="$(mktemp --directory)"
+    - make V=1 install
+    - make V=1 distcheck
+    - git status
+  artifacts:
+    name: "$CI_COMMIT_REF_NAME"
+    paths:
+      - v4l2-relayd-*.tar.xz
+
+.build-template: &build-template
+  stage: build
+  variables:
+    GIT_STRATEGY: "none"
+  before_script:
+    - *install-deps
+    - tar xf v4l2-relayd-*.xz
+    - rm v4l2-relayd-*.xz
+    - cd v4l2-relayd-*
+  script:
+    - ./configure
+    - make V=1 -j $(nproc) install
+
+build:debian:
+  extends: .build-template
+  image: buildpack-deps:unstable
+
+build:ubuntu:
+  extends: .build-template
+  image: buildpack-deps:hirsute
