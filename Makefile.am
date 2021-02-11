@@ -6,6 +6,8 @@ bin_PROGRAMS =
 
 EXTRA_DIST = \
   autogen.sh \
+  LICENSE \
+  README.md \
   $(empty)
 
 GITIGNOREFILES = \
