@@ -1,0 +1,14 @@
+# GStreamer source element name:
+#VIDEOSRC="videotest"
+
+# Output format, width, height, and frame rate:
+#FORMAT=YUV2
+#WIDTH=1280
+#HEIGHT=720
+#FRAMERATE=30/1
+
+# Virtual video device name:
+#CARD_LABEL="Virtual Camera"
+
+# Extra options to pass to v4l2-relayd:
+#EXTRA_OPTS=-d

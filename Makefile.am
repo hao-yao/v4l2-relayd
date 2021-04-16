@@ -2,7 +2,14 @@ ACLOCAL_AMFLAGS = -I m4 ${ACLOCAL_FLAGS}
 
 SUBDIRS = .
 
+modprobedir = $(sysconfdir)/modprobe.d
+sysconfdefaultdir = $(sysconfdir)/default
+
 bin_PROGRAMS =
+dist_modprobe_DATA =
+dist_modulesload_DATA =
+dist_sysconfdefault_DATA =
+dist_systemdsystemunit_DATA =
 
 EXTRA_DIST = \
   autogen.sh \
@@ -26,6 +33,8 @@ MAINTAINERCLEANFILES = \
 
 DISTCHECK_CONFIGURE_FLAGS = \
   --disable-maintainer-mode \
+  --with-systemdsystemunitdir=$$dc_install_base/$(systemdsystemunitdir) \
+  --with-modulesloaddir=$$dc_install_base/$(modulesloaddir) \
   $(empty)
 
 CLEANFILES = \
@@ -57,6 +66,16 @@ src_v4l2_relayd_LDADD = \
   $(DEPS_LIBS) \
   $(GST_LIBS) \
   $(empty)
+
+###############################
+## data files
+
+if HAVE_SYSTEMD
+dist_modprobe_DATA += data/etc/modprobe.d/v4l2-relayd.conf
+dist_modulesload_DATA += data/etc/modules-load.d/v4l2-relayd.conf
+dist_sysconfdefault_DATA += data/etc/default/v4l2-relayd
+dist_systemdsystemunit_DATA += data/systemd/v4l2-relayd.service
+endif
 
 distclean-local:
 	if test "$(srcdir)" = "."; then :; else \
