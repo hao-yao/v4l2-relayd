@@ -1,6 +1,6 @@
 m4_define([v4l2_relayd_major_version], [0])
 m4_define([v4l2_relayd_minor_version], [1])
-m4_define([v4l2_relayd_micro_version], [0])
+m4_define([v4l2_relayd_micro_version], [1])
 m4_define([v4l2_relayd_interface_age], [1])
 m4_define([v4l2_relayd_binary_age],
           [m4_eval(100 * v4l2_relayd_minor_version + v4l2_relayd_micro_version)])
