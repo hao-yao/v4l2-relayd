@@ -170,19 +170,34 @@ input_appsink_new_sample (GstAppSink *appsink,
 static GstElement*
 input_pipeline_create (GstElement *appsrc)
 {
-  GstElement *pipeline, *appsink;
+  GstElement *pipeline, *appsink, *element;
+  GstPad *src_pad;
   GstClock *clock;
   GError *error = NULL;
   GstCaps *caps;
   GstBus *bus;
 
-  pipeline = gst_parse_launch (opt_input, &error);
-  if (pipeline == NULL) {
+  element = gst_parse_launch_full (opt_input, NULL,
+                                   GST_PARSE_FLAG_FATAL_ERRORS, &error);
+  if (element == NULL) {
     GST_ERROR ("%s", error->message);
     g_error_free (error);
     return NULL;
   }
+  if (!GST_IS_PIPELINE (element)) {
+    pipeline = gst_pipeline_new (NULL);
+    gst_bin_add (GST_BIN (pipeline), element);
+  } else
+    pipeline = element;
   gst_object_ref_sink (pipeline);
+  gst_element_set_name (pipeline, "input-pipeline");
+
+  src_pad = gst_bin_find_unlinked_pad (GST_BIN (pipeline), GST_PAD_SRC);
+  if (src_pad == NULL) {
+    GST_ERROR ("no src pad available in input-pipeline");
+    gst_object_unref (pipeline);
+    return NULL;
+  }
 
   clock = gst_system_clock_obtain ();
   gst_pipeline_use_clock (GST_PIPELINE (pipeline), clock);
@@ -191,7 +206,7 @@ input_pipeline_create (GstElement *appsrc)
   gst_element_set_start_time (pipeline, GST_CLOCK_TIME_NONE);
   gst_object_unref (clock);
 
-  appsink = gst_bin_get_by_name (GST_BIN (pipeline), "appsink");
+  appsink = gst_element_factory_make ("appsink", NULL);
   caps = gst_app_src_get_caps (GST_APP_SRC (appsrc));
   g_object_set (appsink,
                 "caps", caps,
@@ -203,7 +218,12 @@ input_pipeline_create (GstElement *appsrc)
                            "new-sample", (GCallback) input_appsink_new_sample,
                            appsrc, 0);
   gst_caps_unref (caps);
-  gst_object_unref (appsink);
+
+  gst_bin_add (GST_BIN (pipeline), appsink);
+  element = gst_pad_get_parent_element (src_pad);
+  gst_element_link (element, appsink);
+  gst_object_unref (element);
+  gst_object_unref (src_pad);
 
   bus = gst_pipeline_get_bus (GST_PIPELINE (pipeline));
   input_bus_watch_id =
