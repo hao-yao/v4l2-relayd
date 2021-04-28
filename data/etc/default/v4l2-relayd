@@ -1,5 +1,6 @@
 # GStreamer source element name:
 #VIDEOSRC="videotest"
+#SPLASHSRC="filesrc location=/.../splash.png ! pngdec ! imagefreeze num-buffers=4 ! videoscale ! videoconvert"
 
 # Output format, width, height, and frame rate:
 #FORMAT=YUV2
