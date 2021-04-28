@@ -34,6 +34,9 @@ struct v4l2_event_client_usage {
   __u32 count;
 };
 
+GST_DEBUG_CATEGORY_STATIC (gst_debug_category);
+#define GST_CAT_DEFAULT gst_debug_category
+
 static gboolean opt_background = FALSE;
 static gboolean opt_debug = FALSE;
 static gboolean opt_version = FALSE;
@@ -133,7 +136,7 @@ input_pipeline_bus_call (GstBus     *bus,
       gst_message_parse_error (msg, &error, &debug);
       g_free (debug);
 
-      g_printerr ("Error: %s\n", error->message);
+      GST_ERROR ("%s", error->message);
       g_error_free (error);
 
       gst_element_set_state (input_pipeline, GST_STATE_NULL);
@@ -176,7 +179,7 @@ input_pipeline_create (GstElement *appsrc)
 
   pipeline = gst_parse_launch (opt_input, &error);
   if (pipeline == NULL) {
-    g_printerr ("Error: %s\n", error->message);
+    GST_ERROR ("%s", error->message);
     g_error_free (error);
     return NULL;
   }
@@ -252,13 +255,13 @@ v4l2sink_event_callback (gint         fd,
     if (ret < 0)
       return TRUE;
 
-    g_debug ("Received V4L2 event type %u", event.type);
+    GST_TRACE ("Received V4L2 event type %u", event.type);
     switch (event.type) {
       case V4L2_EVENT_PRI_CLIENT_USAGE: {
         struct v4l2_event_client_usage usage;
 
         memcpy (&usage, &event.u, sizeof usage);
-        g_print ("Current V4L2 client: %u\n", usage.count);
+        GST_DEBUG ("Current V4L2 client: %u", usage.count);
         if (usage.count)
           input_pipeline_enable ();
         else
@@ -290,9 +293,9 @@ output_pipeline_bus_call (GstBus     *bus,
         break;
 
       gst_message_parse_state_changed (msg, &old_state, &new_state, NULL);
-      g_print ("Output pipeline state changed from %s to %s:\n",
-               gst_element_state_get_name (old_state),
-               gst_element_state_get_name (new_state));
+      GST_DEBUG ("Output pipeline state changed from %s to %s",
+                 gst_element_state_get_name (old_state),
+                 gst_element_state_get_name (new_state));
       if (old_state == GST_STATE_PLAYING) {
         if (v4l2_event_poll_id > 0) {
           g_source_remove (v4l2_event_poll_id);
@@ -319,13 +322,12 @@ output_pipeline_bus_call (GstBus     *bus,
         v4l2_event_poll_id =
             g_unix_fd_add (fd, G_IO_PRI, v4l2sink_event_callback, NULL);
       else
-        g_debug ("V4L2_EVENT_PRI_CLIENT_USAGE not supported\n");
+        GST_WARNING ("V4L2_EVENT_PRI_CLIENT_USAGE not supported");
 
       gst_object_unref (v4l2sink);
       break;
     }
     case GST_MESSAGE_EOS:
-      g_print ("End of stream\n");
       g_main_loop_quit (loop);
       break;
 
@@ -336,7 +338,7 @@ output_pipeline_bus_call (GstBus     *bus,
       gst_message_parse_error (msg, &error, &debug);
       g_free (debug);
 
-      g_printerr ("Error: %s\n", error->message);
+      GST_ERROR ("%s", error->message);
       g_error_free (error);
 
       g_main_loop_quit (loop);
@@ -423,7 +425,7 @@ output_pipeline_create ()
 
   pipeline = gst_parse_launch (opt_output, &error);
   if (pipeline == NULL) {
-    g_printerr ("Error: %s\n", error->message);
+    GST_ERROR ("%s", error->message);
     g_error_free (error);
     return NULL;
   }
@@ -461,15 +463,13 @@ main (int   argc,
 
   parse_args (argc, argv);
 
+  GST_DEBUG_CATEGORY_INIT (GST_CAT_DEFAULT, "V4L2_RELAYD", 0, "v4l2-relayd");
+
   loop = g_main_loop_new (NULL, FALSE);
   output_pipeline = output_pipeline_create ();
-
-  /* Create gstreamer elements */
-
-  g_print ("Now playing...\n");
   gst_element_set_state (output_pipeline, GST_STATE_PLAYING);
 
-  g_print ("Running...\n");
+  GST_INFO ("Running...");
   g_main_loop_run (loop);
 
   g_source_remove (input_bus_watch_id);
