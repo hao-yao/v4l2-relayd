@@ -50,7 +50,6 @@ static guint output_push_buffer_id = 0;
 static guint v4l2_event_poll_id = 0;
 static GstElement *input_pipeline = NULL;
 static GstElement *output_pipeline = NULL;
-static GstClockTime base_time;
 
 static gboolean    input_pipeline_bus_call (GstBus     *bus,
                                             GstMessage *msg,
@@ -187,12 +186,10 @@ input_pipeline_create (GstElement *appsrc)
 
   clock = gst_system_clock_obtain ();
   gst_pipeline_use_clock (GST_PIPELINE (pipeline), clock);
-  gst_element_set_base_time (pipeline, base_time);
-  gst_element_set_start_time (pipeline, GST_CLOCK_TIME_NONE);
-  gst_object_unref (clock);
-
   gst_element_set_base_time (pipeline,
                              gst_element_get_base_time (output_pipeline));
+  gst_element_set_start_time (pipeline, GST_CLOCK_TIME_NONE);
+  gst_object_unref (clock);
 
   appsink = gst_bin_get_by_name (GST_BIN (pipeline), "appsink");
   caps = gst_app_src_get_caps (GST_APP_SRC (appsrc));
@@ -432,9 +429,8 @@ output_pipeline_create ()
   gst_object_ref_sink (pipeline);
 
   clock = gst_system_clock_obtain ();
-  base_time = gst_clock_get_time (clock);
   gst_pipeline_use_clock (GST_PIPELINE (pipeline), clock);
-  gst_element_set_base_time (pipeline, base_time);
+  gst_element_set_base_time (pipeline, gst_clock_get_time (clock));
   gst_element_set_start_time (pipeline, GST_CLOCK_TIME_NONE);
   gst_object_unref (clock);
 
