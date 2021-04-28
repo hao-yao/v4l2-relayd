@@ -49,7 +49,6 @@ static GMainLoop *loop = NULL;
 static guint input_bus_watch_id = 0;
 static guint output_bus_watch_id = 0;
 static guint splash_bus_watch_id = 0;
-static guint output_push_buffer_id = 0;
 static guint v4l2_event_poll_id = 0;
 static GstElement *input_pipeline = NULL;
 static GstElement *output_pipeline = NULL;
@@ -259,7 +258,7 @@ input_pipeline_get ()
   return input_pipeline;
 }
 
-G_GNUC_UNUSED static GstElement*
+static GstElement*
 splash_pipeline_get ()
 {
   if (splash_pipeline == NULL) {
@@ -272,6 +271,7 @@ splash_pipeline_get ()
 static void
 input_pipeline_enable ()
 {
+  gst_element_set_state (splash_pipeline_get (), GST_STATE_NULL);
   gst_element_set_state (input_pipeline_get (), GST_STATE_PLAYING);
 }
 
@@ -280,6 +280,8 @@ input_pipeline_disable ()
 {
   if (input_pipeline != NULL)
     gst_element_set_state (input_pipeline, GST_STATE_NULL);
+  if (input_pipeline != NULL)
+    gst_element_set_state (splash_pipeline, GST_STATE_PLAYING);
 }
 
 static gboolean
@@ -352,6 +354,9 @@ output_pipeline_bus_call (GstBus     *bus,
         break;
       }
 
+      if (old_state == GST_STATE_READY && new_state == GST_STATE_PAUSED)
+        gst_element_set_state (splash_pipeline_get (), GST_STATE_PLAYING);
+
       if (new_state != GST_STATE_PLAYING)
         break;
 
@@ -398,70 +403,6 @@ output_pipeline_bus_call (GstBus     *bus,
   return TRUE;
 }
 
-static gboolean
-output_appsrc_push_data (GstAppSrc *appsrc)
-{
-  GstCaps *caps;
-  GstVideoInfo info;
-  GstBuffer *buffer;
-  gboolean ret = G_SOURCE_REMOVE;
-
-  gst_video_info_init (&info);
-  caps = gst_app_src_get_caps (appsrc);
-  if ((caps == NULL) || !gst_video_info_from_caps (&info, caps))
-    goto caps_error;
-
-  buffer = gst_buffer_new_allocate (NULL, GST_VIDEO_INFO_SIZE (&info), NULL);
-  if (buffer == NULL)
-    goto caps_error;
-
-  ret = GST_FLOW_OK == gst_app_src_push_buffer (appsrc, buffer)
-      ? G_SOURCE_CONTINUE : G_SOURCE_REMOVE;
-
-caps_error:
-  if (caps != NULL)
-    gst_caps_unref (caps);
-
-  if (ret == G_SOURCE_REMOVE)
-    output_push_buffer_id = 0;
-
-  return ret;
-}
-
-static void
-output_appsrc_need_data (GstAppSrc *appsrc,
-                         guint      length G_GNUC_UNUSED,
-                         gpointer   user_data G_GNUC_UNUSED)
-{
-  GstState state;
-
-  if (output_push_buffer_id != 0)
-    return;
-
-  gst_element_get_state (output_pipeline, &state, NULL, 0);
-  if (state == GST_STATE_PLAYING)
-      return;
-
-  output_push_buffer_id =
-      g_idle_add ((GSourceFunc) output_appsrc_push_data, appsrc);
-}
-
-static void
-output_appsrc_enough_data (GstAppSrc *appsrc G_GNUC_UNUSED,
-                           gpointer   user_data G_GNUC_UNUSED)
-{
-  if (output_push_buffer_id != 0) {
-    g_source_remove (output_push_buffer_id);
-    output_push_buffer_id = 0;
-  }
-}
-
-static GstAppSrcCallbacks output_appsrc_callbacks = {
-  .need_data = output_appsrc_need_data,
-  .enough_data = output_appsrc_enough_data,
-  .seek_data = NULL
-};
-
 static GstElement*
 output_pipeline_create ()
 {
@@ -489,9 +430,8 @@ output_pipeline_create ()
                 "stream-type", GST_APP_STREAM_TYPE_STREAM,
                 "format", GST_FORMAT_DEFAULT,
                 "is-live", TRUE,
+                "emit-signals", FALSE,
                 NULL);
-  gst_app_src_set_callbacks (GST_APP_SRC (appsrc), &output_appsrc_callbacks,
-                             NULL, NULL);
   gst_object_unref (appsrc);
 
   bus = gst_pipeline_get_bus (GST_PIPELINE (pipeline));
