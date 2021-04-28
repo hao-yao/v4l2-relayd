@@ -180,13 +180,13 @@ input_pipeline_create (GstElement *appsrc)
     g_error_free (error);
     return NULL;
   }
-  g_object_ref_sink (pipeline);
+  gst_object_ref_sink (pipeline);
 
   clock = gst_system_clock_obtain ();
   gst_pipeline_use_clock (GST_PIPELINE (pipeline), clock);
   gst_element_set_base_time (pipeline, base_time);
   gst_element_set_start_time (pipeline, GST_CLOCK_TIME_NONE);
-  g_object_unref (clock);
+  gst_object_unref (clock);
 
   gst_element_set_base_time (pipeline,
                              gst_element_get_base_time (output_pipeline));
@@ -203,7 +203,7 @@ input_pipeline_create (GstElement *appsrc)
                            "new-sample", (GCallback) input_appsink_new_sample,
                            appsrc, 0);
   gst_caps_unref (caps);
-  g_object_unref (appsink);
+  gst_object_unref (appsink);
 
   bus = gst_pipeline_get_bus (GST_PIPELINE (pipeline));
   input_bus_watch_id =
@@ -221,7 +221,7 @@ input_pipeline_enable ()
 
     appsrc = gst_bin_get_by_name (GST_BIN (output_pipeline), "appsrc");
     input_pipeline = input_pipeline_create (appsrc);
-    g_object_unref (appsrc);
+    gst_object_unref (appsrc);
   }
 
   gst_element_set_state (input_pipeline, GST_STATE_PLAYING);
@@ -321,7 +321,7 @@ output_pipeline_bus_call (GstBus     *bus,
       else
         g_debug ("V4L2_EVENT_PRI_CLIENT_USAGE not supported\n");
 
-      g_object_unref (v4l2sink);
+      gst_object_unref (v4l2sink);
       break;
     }
     case GST_MESSAGE_EOS:
@@ -427,14 +427,14 @@ output_pipeline_create ()
     g_error_free (error);
     return NULL;
   }
-  g_object_ref_sink (pipeline);
+  gst_object_ref_sink (pipeline);
 
   clock = gst_system_clock_obtain ();
   base_time = gst_clock_get_time (clock);
   gst_pipeline_use_clock (GST_PIPELINE (pipeline), clock);
   gst_element_set_base_time (pipeline, base_time);
   gst_element_set_start_time (pipeline, GST_CLOCK_TIME_NONE);
-  g_object_unref (clock);
+  gst_object_unref (clock);
 
   appsrc = gst_bin_get_by_name (GST_BIN (pipeline), "appsrc");
   g_object_set (appsrc,
@@ -444,7 +444,7 @@ output_pipeline_create ()
                 NULL);
   gst_app_src_set_callbacks (GST_APP_SRC (appsrc), &output_appsrc_callbacks,
                              NULL, NULL);
-  g_object_unref (appsrc);
+  gst_object_unref (appsrc);
 
   bus = gst_pipeline_get_bus (GST_PIPELINE (pipeline));
   output_bus_watch_id =
