@@ -1,0 +1,19 @@
+[Unit]
+Description=v4l2-relay daemon service
+After=modprobe@v4l2loopback.service systemd-logind.service
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/default/v4l2-relayd
+EnvironmentFile=-/etc/v4l2-relayd
+ExecCondition=/usr/bin/test -n "${VIDEOSRC}"
+ExecCondition=/usr/bin/test -n "$FORMAT"
+ExecCondition=/usr/bin/test -n "$WIDTH"
+ExecCondition=/usr/bin/test -n "$HEIGHT"
+ExecCondition=/usr/bin/test -n "$FRAMERATE"
+ExecCondition=/usr/bin/test -n "${CARD_LABEL}"
+ExecStart=/bin/sh -c 'DEVICE=$(grep -l -m1 -E "^${CARD_LABEL}$" /sys/devices/virtual/video4linux/*/name | cut -d/ -f6); exec /usr/bin/v4l2-relayd -i "${VIDEOSRC}" $${SPLASHSRC:+-s "${SPLASHSRC}"} -o "appsrc name=appsrc caps=video/x-raw,format=${FORMAT},width=${WIDTH},height=${HEIGHT},framerate=${FRAMERATE} ! videoconvert ! v4l2sink name=v4l2sink device=/dev/$${DEVICE}"'
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

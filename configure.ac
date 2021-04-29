@@ -1,6 +1,6 @@
 m4_define([v4l2_relayd_major_version], [0])
 m4_define([v4l2_relayd_minor_version], [1])
-m4_define([v4l2_relayd_micro_version], [0])
+m4_define([v4l2_relayd_micro_version], [1])
 m4_define([v4l2_relayd_interface_age], [1])
 m4_define([v4l2_relayd_binary_age],
           [m4_eval(100 * v4l2_relayd_minor_version + v4l2_relayd_micro_version)])
@@ -86,6 +86,41 @@ PKG_CHECK_MODULES(GST, [
       The minimum version required is $GST_REQUIRED.
   ])
 ])
+
+AC_ARG_WITH([systemdsystemunitdir],
+  [AS_HELP_STRING([--with-systemdsystemunitdir=DIR], [Directory for systemd service files])],,
+  [with_systemdsystemunitdir=auto])
+AS_IF([test "x$with_systemdsystemunitdir" = "xyes" -o "x$with_systemdsystemunitdir" = "xauto"], [
+  def_systemdsystemunitdir=$($PKG_CONFIG --variable=systemdsystemunitdir systemd)
+  AS_IF([test "x$def_systemdsystemunitdir" = "x"], [
+    AS_IF([test "x$with_systemdsystemunitdir" = "xyes"],
+      [AC_MSG_ERROR([systemd support requested but pkg-config unable to query systemd package])])
+    with_systemdsystemunitdir=no
+  ], [
+    with_systemdsystemunitdir="$def_systemdsystemunitdir"
+  ])
+])
+AS_IF([test "x$with_systemdsystemunitdir" != "xno"], [
+  AC_SUBST([systemdsystemunitdir], [$with_systemdsystemunitdir])
+])
+AC_ARG_WITH([modulesloaddir],
+  [AS_HELP_STRING([--with-modulesloaddir=DIR], [Directory for systemd service files])],,
+  [with_modulesloaddir=auto])
+AS_IF([test "x$with_modulesloaddir" = "xyes" -o "x$with_modulesloaddir" = "xauto"], [
+  def_modulesloaddir=$($PKG_CONFIG --variable=modulesloaddir systemd)
+  AS_IF([test "x$def_modulesloaddir" = "x"], [
+    AS_IF([test "x$with_modulesloaddir" = "xyes"],
+      [AC_MSG_ERROR([systemd support requested but pkg-config unable to query systemd package])])
+    with_modulesloaddir=no
+  ], [
+    with_modulesloaddir="$def_modulesloaddir"
+  ])
+])
+AS_IF([test "x$with_modulesloaddir" != "xno"], [
+  AC_SUBST([modulesloaddir], [$with_modulesloaddir])
+])
+AM_CONDITIONAL([HAVE_SYSTEMD],
+  [test "x$with_systemdsystemunitdir" != "xno" && test "x$with_modulesloaddir" != "xno"])
 
 AC_CONFIG_FILES([
   Makefile
