@@ -1,15 +1,22 @@
 # GStreamer source element name:
-#VIDEOSRC="videotest"
+VIDEOSRC="icamerasrc buffer-count=7"
 #SPLASHSRC="filesrc location=/.../splash.png ! pngdec ! imagefreeze num-buffers=4 ! videoscale ! videoconvert"
 
 # Output format, width, height, and frame rate:
-#FORMAT=YUV2
-#WIDTH=1280
-#HEIGHT=720
-#FRAMERATE=30/1
+FORMAT=NV12
+WIDTH=1280
+HEIGHT=720
+# WIDTH=1920
+# HEIGHT=1080
+# WIDTH=4096
+# HEIGHT=3072
+FRAMERATE=30/1
 
 # Virtual video device name:
-#CARD_LABEL="Virtual Camera"
+CARD_LABEL="Intel MIPI Camera"
 
 # Extra options to pass to v4l2-relayd:
 #EXTRA_OPTS=-d
+
+# Gstreamer plugin path, to enable icamerasrc:
+GST_PLUGIN_PATH=/lib/gstreamer-1.0:/lib/x86_64-linux-gnu/gstreamer-1.0
