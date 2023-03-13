@@ -4,7 +4,7 @@ After=modprobe@v4l2loopback.service systemd-logind.service
 
 [Service]
 Type=simple
-EnvironmentFile=/etc/default/v4l2-relayd
+EnvironmentFile=/etc/default/v4l2-relayd-wf
 EnvironmentFile=-/etc/v4l2-relayd
 ExecCondition=/usr/bin/test -n "${VIDEOSRC}"
 ExecCondition=/usr/bin/test -n "$FORMAT"

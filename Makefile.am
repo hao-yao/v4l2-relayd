@@ -73,8 +73,10 @@ src_v4l2_relayd_LDADD = \
 if HAVE_SYSTEMD
 dist_modprobe_DATA += data/etc/modprobe.d/v4l2-relayd.conf
 dist_modulesload_DATA += data/etc/modules-load.d/v4l2-relayd.conf
-dist_sysconfdefault_DATA += data/etc/default/v4l2-relayd
-dist_systemdsystemunit_DATA += data/systemd/v4l2-relayd.service
+dist_sysconfdefault_DATA += data/etc/default/v4l2-relayd-uf
+dist_sysconfdefault_DATA += data/etc/default/v4l2-relayd-wf
+dist_systemdsystemunit_DATA += data/systemd/v4l2-relayd-uf.service
+dist_systemdsystemunit_DATA += data/systemd/v4l2-relayd-wf.service
 endif
 
 distclean-local:
